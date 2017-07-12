@@ -133,11 +133,12 @@ function ChaCha.crypt(k, v, m, rounds)
 	v = { string_byte(v, 1, -1) }
 	
 	for j = 1, string_len(m) do
-		if j % 64 == 1 then
+		if #key == 0 then
 			key, i = ChaCha.makekey(k, v, i, rounds)
 		end
 		
 		ciphertext[j] = string_char(bit_bxor(string_byte(m, j), key[((j - 1) % 64) + 1]))
+		key[j] = nil
 	end
 	
 	return table_concat(ciphertext)
