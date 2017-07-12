@@ -1,44 +1,43 @@
 
 ChaCha = {}
 
+local error = error
 local string_byte = string.byte
 local string_char = string.char
 local string_len = string.len
 local string_format = string.format
 local bit_bxor = bit.bxor
 local bit_rol = bit.rol
-local bit_ror = bit.ror
 local bit_rshift = bit.rshift
+local bit_ror = bit.ror
 local bit_band = bit.band
 local table_concat = table.concat
+local table_remove = table.remove
 local table_Copy = table.Copy
 
-function ChaCha.quarterround(y0, y1, y2, y3)
-	y0 = y0 + y1; y3 = bit_rol(bit_bxor(y3, y0), 16)
-	y2 = y2 + y3; y1 = bit_rol(bit_bxor(y1, y2), 12)
-	y0 = y0 + y1; y3 = bit_rol(bit_bxor(y3, y0), 8)
-	y2 = y2 + y3; y1 = bit_rol(bit_bxor(y1, y2), 7)
-		
-	return y0, y1, y2, y3
+function ChaCha.quarterround(t, x, y, z, w)
+	t[x] = t[x] + t[y]; t[w] = bit_rol(bit_bxor(t[w], t[x]), 16)
+	t[z] = t[z] + t[w]; t[y] = bit_rol(bit_bxor(t[y], t[z]), 12)
+	t[x] = t[x] + t[y]; t[w] = bit_rol(bit_bxor(t[w], t[x]), 8)
+	t[z] = t[z] + t[w]; t[y] = bit_rol(bit_bxor(t[y], t[z]), 7)
 end
 
 function ChaCha.doubleround(x)
-	local y = x
-	
-	y[1], 	y[5], 	y[9], 	y[13] = ChaCha.quarterround(y[1], 	y[5], 	y[9], 	y[13])
-	y[2], 	y[6], 	y[10], 	y[14] = ChaCha.quarterround(y[2], 	y[6], 	y[10], 	y[14])
-	y[3], 	y[7], 	y[11], 	y[15] = ChaCha.quarterround(y[3], 	y[7], 	y[11], 	y[15])
-	y[4], 	y[8],	y[12], 	y[16] = ChaCha.quarterround(y[4],	y[8],	y[12], 	y[16])
-	y[1],	y[6],	y[11],	y[16] = ChaCha.quarterround(y[1], 	y[6],	y[11],	y[16])
-	y[2],	y[7],	y[12],	y[13] = ChaCha.quarterround(y[2], 	y[7],	y[12],	y[13])
-	y[3],	y[8],	y[9],	y[14] = ChaCha.quarterround(y[3], 	y[8],	y[9],	y[14])
-	y[4],	y[5],	y[10],	y[15] = ChaCha.quarterround(y[4], 	y[5],	y[10],	y[15])
-	
-	return y
+	ChaCha.quarterround(x, 1, 	5, 	9, 	13)
+	ChaCha.quarterround(x, 2, 	6, 	10, 14)
+	ChaCha.quarterround(x, 3, 	7, 	11, 15)
+	ChaCha.quarterround(x, 4,	8,	12, 16)
+	ChaCha.quarterround(x, 1, 	6,	11,	16)
+	ChaCha.quarterround(x, 2, 	7,	12,	13)
+	ChaCha.quarterround(x, 3, 	8,	9,	14)
+	ChaCha.quarterround(x, 4, 	5,	10,	15)
 end
 
 function ChaCha.littleendian(b)
-	return b[1] + b[2] * (2 ^ 8) + b[3] * (2 ^ 16) + b[4] * (2 ^ 24)
+	return 		b[1] 		+ 
+		bit_rol(b[2], 8)  	+ 
+		bit_rol(b[3], 16) 	+ 
+		bit_rol(b[4], 24)
 end
 
 function ChaCha.inv_littleendian(b)
@@ -54,15 +53,14 @@ function ChaCha.hash(b, rounds)
 	local x = {}
 	local out = {}
 	
-	for i = 1, 16 do
-		local p = (i * 4) - 3
-		x[i] = ChaCha.littleendian({b[p], b[p + 1], b[p + 2], b[p + 3]}) 
+	for i = 1, 64, 4 do
+		x[#x + 1] = ChaCha.littleendian({b[i], b[i + 1], b[i + 2], b[i + 3]}) 
 	end
 	
 	
 	local z = table_Copy(x)
 	for i = 1, rounds / 2 do
-		z = ChaCha.doubleround(z)
+		ChaCha.doubleround(z)
 	end
 	
 	for i = 1, 16 do
@@ -99,18 +97,18 @@ function ChaCha.expand(k, n, rounds)
 	return ChaCha.hash(out, rounds)
 end
 
-function ChaCha.makekey(k, v, i, rounds)
+function ChaCha.makekey(k, v, counter, rounds)
 	local n = {}
 	
 	for j = 1, 8 do
-		n[9 - j] = bit_rshift(bit_band(i, 0xFF), j * 4)
+		n[9 - j] = bit_rshift(bit_band(counter, 0xFF), j * 4)
 		n[j + 8] = v[j]
 	end
 	
-	return ChaCha.expand(k, n, rounds), i + 1
+	return ChaCha.expand(k, n, rounds), counter + 1
 end
 
-function ChaCha.crypt(k, v, m, rounds)
+function ChaCha.crypt(k, v, m, rounds, counter)
 	if #k ~= 32 and #k ~= 16 then
 		error("ChaCha.crypt: k must be 16 or 32 bytes in size; got " .. #k)
 	end
@@ -123,9 +121,11 @@ function ChaCha.crypt(k, v, m, rounds)
 		error("ChaCha.crypt: rounds must be 20, 12 or 8; got " .. tostring(rounds))
 	end
 	
+	if not counter then
+		counter = 0
+	end
 	
 	local ciphertext = {}
-	local i = 0
 	local key = {}
 	t = nil
 	
@@ -133,12 +133,14 @@ function ChaCha.crypt(k, v, m, rounds)
 	v = { string_byte(v, 1, -1) }
 	
 	for j = 1, string_len(m) do
-		if j % 64 == 1 then
-			key, i = ChaCha.makekey(k, v, i, rounds)
+		if #key == 0 then
+			key, counter = ChaCha.makekey(k, v, counter, rounds)
 		end
 		
-		ciphertext[j] = string_char(bit_bxor(string_byte(m, j), key[((j - 1) % 64) + 1]))
+		ciphertext[j] = string_char(bit_bxor(string_byte(m, j), key[1]))
+		table_remove(key, 1)
 	end
 	
 	return table_concat(ciphertext)
 end
+
