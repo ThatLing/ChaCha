@@ -15,32 +15,35 @@ local table_concat = table.concat
 local table_remove = table.remove
 local table_Copy = table.Copy
 
-function ChaCha.quarterround(t, x, y, z, w)
+local function quarterround(t, x, y, z, w)
 	t[x] = t[x] + t[y]; t[w] = bit_rol(bit_bxor(t[w], t[x]), 16)
 	t[z] = t[z] + t[w]; t[y] = bit_rol(bit_bxor(t[y], t[z]), 12)
 	t[x] = t[x] + t[y]; t[w] = bit_rol(bit_bxor(t[w], t[x]), 8)
 	t[z] = t[z] + t[w]; t[y] = bit_rol(bit_bxor(t[y], t[z]), 7)
 end
+ChaCha.quarterround = quarterround
 
-function ChaCha.doubleround(x)
-	ChaCha.quarterround(x, 1, 	5, 	9, 	13)
-	ChaCha.quarterround(x, 2, 	6, 	10, 14)
-	ChaCha.quarterround(x, 3, 	7, 	11, 15)
-	ChaCha.quarterround(x, 4,	8,	12, 16)
-	ChaCha.quarterround(x, 1, 	6,	11,	16)
-	ChaCha.quarterround(x, 2, 	7,	12,	13)
-	ChaCha.quarterround(x, 3, 	8,	9,	14)
-	ChaCha.quarterround(x, 4, 	5,	10,	15)
+local function doubleround(x)
+	quarterround(x, 1, 	5, 	9, 	13)
+	quarterround(x, 2, 	6, 	10, 14)
+	quarterround(x, 3, 	7, 	11, 15)
+	quarterround(x, 4,	8,	12, 16)
+	quarterround(x, 1, 	6,	11,	16)
+	quarterround(x, 2, 	7,	12,	13)
+	quarterround(x, 3, 	8,	9,	14)
+	quarterround(x, 4, 	5,	10,	15)
 end
+ChaCha.doubleround = doubleround
 
-function ChaCha.littleendian(b)
+local function littleendian(b)
 	return 		b[1] 		+ 
 		bit_rol(b[2], 8)  	+ 
 		bit_rol(b[3], 16) 	+ 
 		bit_rol(b[4], 24)
 end
+ChaCha.littleendian = littleendian
 
-function ChaCha.inv_littleendian(b)
+local function inv_littleendian(b)
 	local x0 = bit_band(		b, 			0xFF)
 	local x1 = bit_band(bit_ror(b, 8 ), 	0xFF)
 	local x2 = bit_band(bit_ror(b, 16), 	0xFF)
@@ -48,32 +51,34 @@ function ChaCha.inv_littleendian(b)
 	
 	return x0, x1, x2, x3
 end
+ChaCha.inv_littleendian = inv_littleendian
 
-function ChaCha.hash(b, rounds)
+local function hash(b, rounds)
 	local x = {}
 	local out = {}
 	
 	for i = 1, 64, 4 do
-		x[#x + 1] = ChaCha.littleendian({b[i], b[i + 1], b[i + 2], b[i + 3]}) 
+		x[#x + 1] = littleendian({b[i], b[i + 1], b[i + 2], b[i + 3]}) 
 	end
 	
 	
 	local z = table_Copy(x)
 	for i = 1, rounds / 2 do
-		ChaCha.doubleround(z)
+		doubleround(z)
 	end
 	
 	for i = 1, 16 do
 		local p = (i * 4) - 3
-		out[p], out[p + 1], out[p + 2], out[p + 3] = ChaCha.inv_littleendian(z[i] + x[i])
+		out[p], out[p + 1], out[p + 2], out[p + 3] = inv_littleendian(z[i] + x[i])
 	end
 	
 	return out
 end
+ChaCha.hash = hash
 
 
 local t
-function ChaCha.expand(k, n, rounds)
+local function expand(k, n, rounds)
 	local out = {}
 	local keyLen = #k
 	local is32Byte = keyLen == 32
@@ -94,10 +99,11 @@ function ChaCha.expand(k, n, rounds)
 		out[i + 48] = n[i]
 	end
 	
-	return ChaCha.hash(out, rounds)
+	return hash(out, rounds)
 end
+ChaCha.expand = expand
 
-function ChaCha.makekey(k, v, counter, rounds)
+local function makekey(k, v, counter, rounds)
 	local n = {}
 	
 	for j = 1, 8 do
@@ -105,10 +111,11 @@ function ChaCha.makekey(k, v, counter, rounds)
 		n[j + 8] = v[j]
 	end
 	
-	return ChaCha.expand(k, n, rounds), counter + 1
+	return expand(k, n, rounds), counter + 1
 end
+ChaCha.makekey = makekey
 
-function ChaCha.crypt(k, v, m, rounds, counter)
+local function crypt(k, v, m, rounds, counter)
 	if #k ~= 32 and #k ~= 16 then
 		error("ChaCha.crypt: k must be 16 or 32 bytes in size; got " .. #k)
 	end
@@ -134,7 +141,7 @@ function ChaCha.crypt(k, v, m, rounds, counter)
 	
 	for j = 1, string_len(m) do
 		if #key == 0 then
-			key, counter = ChaCha.makekey(k, v, counter, rounds)
+			key, counter = makekey(k, v, counter, rounds)
 		end
 		
 		ciphertext[j] = string_char(bit_bxor(string_byte(m, j), key[1]))
@@ -143,4 +150,5 @@ function ChaCha.crypt(k, v, m, rounds, counter)
 	
 	return table_concat(ciphertext)
 end
+ChaCha.crypt = crypt
 
